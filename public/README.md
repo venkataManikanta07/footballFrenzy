@@ -1,0 +1,1 @@
+Place your `nfl.jpg` image in this folder. The login page uses `/nfl.jpg` as the background.
