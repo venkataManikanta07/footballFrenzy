@@ -1,284 +1,223 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import AdminLayout from '../../components/AdminLayout';
 import {
-  Box,
-  Grid,
-  Typography,
-  TextField,
-  Button,
-  Paper,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  IconButton,
-  Checkbox,
-  Select,
-  MenuItem,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TablePagination,
-  InputLabel,
-  FormControl,
+  Box, Grid, Typography, TextField, Button, Paper,
+  Table, TableHead, TableRow, TableCell, TableBody,
+  IconButton, Select, MenuItem, Dialog, DialogTitle,
+  DialogContent, DialogActions, TablePagination, InputLabel,
+  FormControl, Chip, Avatar, Tooltip, Stack,
 } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/RemoveCircle';
-import MailOutlineIcon from '@mui/icons-material/MailOutline';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon   from '@mui/icons-material/Edit';
+import AddIcon    from '@mui/icons-material/Add';
+import {
+  LS_ADMINS, loadLS, saveLS, INITIAL_ADMINS,
+} from '../../mock/store';
 
-// Mock initial admins data
-const initialAdmins = [
-  {
-    id: 'a1',
-    nameFirst: 'Joshi',
-    nameLast: 'Keyur',
-    enumber: '1',
-    badgeNo: '112234',
-    jobTitle: 'Business Analyst',
-    department: 'Business',
-    phoneNumber: '509-555-0100',
-    cell: '509-555-0101',
-    email: 'KJoshi@Ktea.Com',
-    adminLevel: 1,
-    fml: true,
-  },
-  {
-    id: 'a2',
-    nameFirst: 'Vanama',
-    nameLast: 'Sai',
-    enumber: '3',
-    badgeNo: '111113',
-    jobTitle: 'Azure',
-    department: 'IT',
-    phoneNumber: '',
-    cell: '',
-    email: 'SVanama@Ktea.Com',
-    adminLevel: 2,
-    fml: false,
-  },
-  {
-    id: 'a3',
-    nameFirst: 'Peltier',
-    nameLast: 'Dwight',
-    enumber: '4034',
-    badgeNo: '100305',
-    jobTitle: 'Information Security',
-    department: 'Accounting',
-    phoneNumber: '509-720-4700',
-    cell: '',
-    email: 'Dpeltier@Northernquest.Co',
-    adminLevel: 2,
-    fml: false,
-  },
-];
+const TH = { backgroundColor: '#bfe6e6', color: '#064e4e', fontWeight: 700 };
 
-// Mock people dataset for lookup
-const mockPeople = [
-  { id: 'p1', firstName: 'John', lastName: 'Delange', enumber: '111957', badgeNo: '10375', jobTitle: 'Masselows Cook I', department: 'Masselows BOH', email: 'j.delange@example.com' },
-  { id: 'p2', firstName: 'John', lastName: 'Cappellano', enumber: '100347', badgeNo: '60446', jobTitle: 'EMT', department: 'EMS South', email: 'j.cappellano@example.com' },
-  { id: 'p3', firstName: 'Johnny', lastName: 'DuBrock', enumber: '119912', badgeNo: '16209', jobTitle: 'Venue Manager', department: 'Casino Floor', email: '' },
-  { id: 'p4', firstName: 'John', lastName: 'Im', enumber: '107508', badgeNo: '7575', jobTitle: 'Pit Manager', department: 'NQRC Table Games', email: 'john.im@example.com' },
-  { id: 'p5', firstName: 'Taylor', lastName: 'DeAnne', enumber: '5800', badgeNo: '104446', jobTitle: 'Payroll Specialist', department: 'NQRC Accounting', email: '' },
-];
+const emptyAdmin = {
+  nameFirst: '', nameLast: '', enumber: '', badgeNo: '',
+  jobTitle: '', department: '', email: '', adminLevel: 2,
+};
 
 export default function AdminsPage() {
-  const [admins, setAdmins] = useState(initialAdmins);
-  const [filters, setFilters] = useState({ lastName: '', firstName: '', employeeNumber: '', badgeNumber: '' });
-  const [page, setPage] = useState(0);
+  const [admins, setAdmins] = useState([]);
+
+  const [searchLast,  setSearchLast]  = useState('');
+  const [searchFirst, setSearchFirst] = useState('');
+  const [searchEmp,   setSearchEmp]   = useState('');
+  const [searchBadge, setSearchBadge] = useState('');
+
+  const [page,        setPage]        = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [isDeleteOpen, setDeleteOpen] = useState(false);
-  const [isLookupOpen, setLookupOpen] = useState(false);
-  const [lookupFirst, setLookupFirst] = useState('');
-  const [lookupLast, setLookupLast] = useState('');
-  const [lookupResults, setLookupResults] = useState([]);
 
-  // Filtered data derived from admins and filters
-  const filtered = useMemo(() => {
-    return admins.filter((r) => {
-      if (filters.lastName && !r.nameLast.toLowerCase().includes(filters.lastName.toLowerCase())) return false;
-      if (filters.firstName && !r.nameFirst.toLowerCase().includes(filters.firstName.toLowerCase())) return false;
-      if (filters.employeeNumber && !r.enumber.toString().includes(filters.employeeNumber)) return false;
-      if (filters.badgeNumber && !r.badgeNo.toString().includes(filters.badgeNumber)) return false;
-      return true;
-    });
-  }, [admins, filters]);
+  // New / Edit dialog
+  const [adminDialog,  setAdminDialog]  = useState(false);
+  const [adminForm,    setAdminForm]    = useState(emptyAdmin);
+  const [editingAdmin, setEditingAdmin] = useState(null);
+  const [formErrors,   setFormErrors]   = useState({});
 
-  // Pagination handlers
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
-  const handleChangeRowsPerPage = (event) => {
-    const value = parseInt(event.target.value, 10);
-    setRowsPerPage(value);
-    setPage(0);
-  };
+  // Delete confirm
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [adminToDelete, setAdminToDelete] = useState(null);
 
-  // Filter input handlers
-  const handleFilterChange = (name) => (e) => {
-    setFilters((prev) => ({ ...prev, [name]: e.target.value }));
-  };
-
-  const handleClear = () => {
-    setFilters({ lastName: '', firstName: '', employeeNumber: '', badgeNumber: '' });
-    setRowsPerPage(20);
-  };
-
-  // Delete flow
-  const confirmDelete = (row) => {
-    setDeleteTarget(row);
-    setDeleteOpen(true);
-  };
-  const performDelete = () => {
-    if (deleteTarget) {
-      setAdmins((prev) => prev.filter((p) => p.id !== deleteTarget.id));
-    }
-    setDeleteOpen(false);
-    setDeleteTarget(null);
-  };
-
-  // Lookup modal: simple client-side search when >=3 chars
+  // ─── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const q = (lookupFirst || lookupLast).trim();
-    if (q.length >= 3) {
-      const res = mockPeople.filter((p) => {
-        const fn = p.firstName.toLowerCase();
-        const ln = p.lastName.toLowerCase();
-        const ql = q.toLowerCase();
-        return fn.includes(ql) || ln.includes(ql);
-      });
-      setLookupResults(res);
+    setAdmins(loadLS(LS_ADMINS, INITIAL_ADMINS));
+  }, []);
+
+  // ─── Persist helper ────────────────────────────────────────────────────────
+  function persist(updated) {
+    saveLS(LS_ADMINS, updated);
+    setAdmins(updated);
+  }
+
+  // ─── Filters ───────────────────────────────────────────────────────────────
+  const filtered = useMemo(() => admins.filter(r => {
+    if (searchLast  && !r.nameLast.toLowerCase().includes(searchLast.toLowerCase()))   return false;
+    if (searchFirst && !r.nameFirst.toLowerCase().includes(searchFirst.toLowerCase())) return false;
+    if (searchEmp   && !String(r.enumber).includes(searchEmp))                         return false;
+    if (searchBadge && !String(r.badgeNo).includes(searchBadge))                       return false;
+    return true;
+  }), [admins, searchLast, searchFirst, searchEmp, searchBadge]);
+
+  // ─── Admin Level inline change ─────────────────────────────────────────────
+  function changeLevel(id, level) {
+    persist(admins.map(a => a.id === id ? { ...a, adminLevel: level } : a));
+  }
+
+  // ─── New / Edit ────────────────────────────────────────────────────────────
+  function openNew() {
+    setAdminForm(emptyAdmin);
+    setEditingAdmin(null);
+    setFormErrors({});
+    setAdminDialog(true);
+  }
+
+  function openEdit(admin) {
+    setAdminForm({
+      nameFirst:  admin.nameFirst,
+      nameLast:   admin.nameLast,
+      enumber:    admin.enumber,
+      badgeNo:    admin.badgeNo,
+      jobTitle:   admin.jobTitle,
+      department: admin.department,
+      email:      admin.email,
+      adminLevel: admin.adminLevel,
+    });
+    setEditingAdmin(admin);
+    setFormErrors({});
+    setAdminDialog(true);
+  }
+
+  function validateAdmin() {
+    const e = {};
+    if (!adminForm.nameFirst.trim()) e.nameFirst = 'Required';
+    if (!adminForm.enumber.trim())   e.enumber   = 'Required';
+    return e;
+  }
+
+  function saveAdmin() {
+    const e = validateAdmin();
+    if (Object.keys(e).length) { setFormErrors(e); return; }
+    let updated;
+    if (editingAdmin) {
+      updated = admins.map(a => a.id === editingAdmin.id ? { ...a, ...adminForm } : a);
     } else {
-      setLookupResults([]);
+      updated = [...admins, { id: `a${Date.now()}`, ...adminForm }];
     }
-  }, [lookupFirst, lookupLast]);
+    persist(updated);
+    setAdminDialog(false);
+  }
 
-  const addAdminFromLookup = (person) => {
-    const newAdmin = {
-      id: `a-${Date.now()}`,
-      nameFirst: person.firstName,
-      nameLast: person.lastName,
-      enumber: person.enumber,
-      badgeNo: person.badgeNo,
-      jobTitle: person.jobTitle,
-      department: person.department,
-      phoneNumber: '',
-      cell: '',
-      email: person.email,
-      adminLevel: 2,
-      fml: !!person.email,
-    };
-    setAdmins((prev) => [newAdmin, ...prev]);
-    setLookupOpen(false);
-    setLookupFirst('');
-    setLookupLast('');
-  };
+  // ─── Delete ────────────────────────────────────────────────────────────────
+  function confirmDelete(admin) { setAdminToDelete(admin); setDeleteDialog(true); }
+  function deleteAdmin() {
+    persist(admins.filter(a => a.id !== adminToDelete.id));
+    setDeleteDialog(false);
+    setAdminToDelete(null);
+  }
 
-  // Render
   return (
     <AdminLayout>
-      <Paper sx={{ p: 3, mb: 2, borderRadius: 2 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Typography variant="h5" gutterBottom color="primary">Admins</Typography>
-          <Button variant="contained" color="primary" onClick={() => setLookupOpen(true)}>NEW ADMIN</Button>
+      <Paper sx={{ p: 3 }}>
+        {/* Header */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Typography variant="h5" sx={{ fontWeight: 700, color: '#064e4e' }}>Admin Management</Typography>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Chip
+              label={`${filtered.length} admin${filtered.length !== 1 ? 's' : ''}`}
+              sx={{ bgcolor: '#e0f7f7', color: '#064e4e', fontWeight: 600 }}
+            />
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={openNew}
+              sx={{ bgcolor: '#008b8b', '&:hover': { bgcolor: '#006f6f' } }}
+            >
+              New Admin
+            </Button>
+          </Box>
         </Box>
 
-        <Grid container spacing={2} mb={1}>
-          <Grid item xs={12} md={3}>
-            <TextField
-              fullWidth
-              label="Last Name"
-              value={filters.lastName}
-              onChange={handleFilterChange('lastName')}
-              placeholder="Last Name"
-              sx={{ '& .MuiOutlinedInput-root.Mui-focused': { boxShadow: 'none' } }}
-            />
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <TextField
-              fullWidth
-              label="First Name"
-              value={filters.firstName}
-              onChange={handleFilterChange('firstName')}
-              placeholder="First Name"
-              sx={{ '& .MuiOutlinedInput-root.Mui-focused': { boxShadow: 'none' } }}
-            />
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <TextField
-              fullWidth
-              label="Employee#"
-              value={filters.employeeNumber}
-              onChange={handleFilterChange('employeeNumber')}
-              placeholder="Employee#"
-              sx={{ '& .MuiOutlinedInput-root.Mui-focused': { boxShadow: 'none' } }}
-            />
-          </Grid>
-          <Grid item xs={12} md={2.5}>
-            <TextField
-              fullWidth
-              label="Badge#"
-              value={filters.badgeNumber}
-              onChange={handleFilterChange('badgeNumber')}
-              placeholder="Badge#"
-              sx={{ '& .MuiOutlinedInput-root.Mui-focused': { boxShadow: 'none' } }}
-            />
-          </Grid>
-        </Grid>
-
-        {/* Second row: place Clear button aligned to the right under inputs */}
-        <Grid container spacing={2} mb={2}>
-          <Grid item xs={12}>
-            <Box display="flex" justifyContent="flex-end">
-              <Button sx={{ mt: 1 }} variant="outlined" onClick={handleClear}>CLEAR</Button>
-            </Box>
-          </Grid>
-        </Grid>
-
-        <Box mb={1}>
-          <Typography variant="caption" sx={{ fontWeight: 600 }}>NOTES: </Typography>
+        {/* Filters */}
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', mb: 3, flexWrap: 'wrap' }}>
+          <Box sx={{ flex: 1, minWidth: 140 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>Last Name</Typography>
+            <TextField fullWidth size="small" placeholder="Last Name"
+              value={searchLast} onChange={e => { setSearchLast(e.target.value); setPage(0); }} />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 140 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>First Name</Typography>
+            <TextField fullWidth size="small" placeholder="First Name"
+              value={searchFirst} onChange={e => { setSearchFirst(e.target.value); setPage(0); }} />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 120 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>Employee#</Typography>
+            <TextField fullWidth size="small" placeholder="Employee#"
+              value={searchEmp} onChange={e => { setSearchEmp(e.target.value); setPage(0); }} />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 120 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>Badge#</Typography>
+            <TextField fullWidth size="small" placeholder="Badge#"
+              value={searchBadge} onChange={e => { setSearchBadge(e.target.value); setPage(0); }} />
+          </Box>
+          <Button variant="outlined"
+            onClick={() => { setSearchLast(''); setSearchFirst(''); setSearchEmp(''); setSearchBadge(''); setPage(0); }}
+            sx={{ ml: 'auto', borderColor: '#008b8b', color: '#008b8b', alignSelf: 'flex-end' }}
+          >
+            CLEAR
+          </Button>
         </Box>
 
-        <Table>
+        {/* Table */}
+        <Table size="small">
           <TableHead>
-            <TableRow sx={{ backgroundColor: '#bfe6e6' }}>
-              <TableCell sx={{ color: '#064e4e', fontWeight: 600 }}>Name</TableCell>
-              <TableCell sx={{ color: '#064e4e', fontWeight: 600 }}>Employee# / Badge#</TableCell>
-              <TableCell sx={{ color: '#064e4e', fontWeight: 600 }}>Job Title / Department</TableCell>
-              <TableCell sx={{ color: '#064e4e', fontWeight: 600 }}>Phone</TableCell>
-              <TableCell sx={{ color: '#064e4e', fontWeight: 600 }}>Email</TableCell>
-              <TableCell sx={{ color: '#064e4e', fontWeight: 600 }}>FML</TableCell>
-              <TableCell sx={{ color: '#064e4e', fontWeight: 600 }}>Level</TableCell>
-              <TableCell sx={{ color: '#064e4e', fontWeight: 600 }}>Action</TableCell>
+            <TableRow>
+              <TableCell sx={TH}>Name</TableCell>
+              <TableCell sx={TH}>Employee # / Badge #</TableCell>
+              <TableCell sx={TH}>Job Title / Department</TableCell>
+              <TableCell sx={TH}>Email</TableCell>
+              <TableCell sx={TH} align="center">Level</TableCell>
+              <TableCell sx={TH} align="center">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row) => (
-              <TableRow key={row.id}>
-                <TableCell>{row.nameFirst} {row.nameLast}</TableCell>
-                <TableCell>{row.enumber} {row.badgeNo ? `/ ${row.badgeNo}` : ''}</TableCell>
-                <TableCell>{row.jobTitle} {row.department ? `/ ${row.department}` : ''}</TableCell>
+            {filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map(row => (
+              <TableRow key={row.id} hover>
                 <TableCell>
-                  <div>W: {row.phoneNumber}</div>
-                  <div>C: {row.cell}</div>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Avatar sx={{ width: 30, height: 30, bgcolor: '#008b8b', fontSize: 13 }}>
+                      {row.nameFirst?.[0]}{row.nameLast?.[0]}
+                    </Avatar>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {row.nameFirst} {row.nameLast}
+                    </Typography>
+                  </Box>
                 </TableCell>
                 <TableCell>
-                  {row.email ? (
-                    <a href={`mailto:${row.email}`}>{row.email}</a>
-                  ) : '--'}
+                  <Typography variant="body2">{row.enumber}</Typography>
+                  {row.badgeNo && (
+                    <Typography variant="caption" sx={{ color: '#888' }}>Badge: {row.badgeNo}</Typography>
+                  )}
                 </TableCell>
                 <TableCell>
-                  <Checkbox checked={!!row.fml} onChange={(e) => setAdmins((prev) => prev.map((p) => p.id === row.id ? { ...p, fml: e.target.checked } : p))} />
+                  <Typography variant="body2">{row.jobTitle}</Typography>
+                  {row.department && (
+                    <Typography variant="caption" sx={{ color: '#888' }}>{row.department}</Typography>
+                  )}
                 </TableCell>
                 <TableCell>
-                  <FormControl size="small">
-                    <InputLabel id={`lvl-${row.id}`}>Level</InputLabel>
+                  {row.email
+                    ? <a href={`mailto:${row.email}`} style={{ color: '#008b8b' }}>{row.email}</a>
+                    : <Typography variant="caption" sx={{ color: '#aaa' }}>—</Typography>}
+                </TableCell>
+                <TableCell align="center">
+                  <FormControl size="small" sx={{ minWidth: 72 }}>
                     <Select
-                      labelId={`lvl-${row.id}`}
                       value={row.adminLevel}
-                      label="Level"
-                      onChange={(e) => setAdmins((prev) => prev.map((p) => p.id === row.id ? { ...p, adminLevel: Number(e.target.value) } : p))}
+                      onChange={e => changeLevel(row.id, Number(e.target.value))}
                     >
                       <MenuItem value={1}>1</MenuItem>
                       <MenuItem value={2}>2</MenuItem>
@@ -286,13 +225,27 @@ export default function AdminsPage() {
                     </Select>
                   </FormControl>
                 </TableCell>
-                <TableCell>
-                  <IconButton onClick={() => confirmDelete(row)}>
-                    <DeleteIcon color="error" />
-                  </IconButton>
+                <TableCell align="center">
+                  <Stack direction="row" justifyContent="center">
+                    <Tooltip title="Edit Admin">
+                      <IconButton size="small" onClick={() => openEdit(row)} sx={{ color: '#555' }}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete Admin">
+                      <IconButton size="small" onClick={() => confirmDelete(row)} sx={{ color: '#d32f2f' }}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
                 </TableCell>
               </TableRow>
             ))}
+            {filtered.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} align="center" sx={{ py: 4, color: '#888' }}>No admins found.</TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
 
@@ -300,76 +253,94 @@ export default function AdminsPage() {
           component="div"
           count={filtered.length}
           page={page}
-          onPageChange={handleChangePage}
+          onPageChange={(_, p) => setPage(p)}
           rowsPerPage={rowsPerPage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
+          onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
           rowsPerPageOptions={[5, 10, 20, 50]}
         />
-
-        
       </Paper>
 
-      {/* Delete dialog */}
-      <Dialog open={isDeleteOpen} onClose={() => setDeleteOpen(false)}>
-        <DialogTitle>Delete</DialogTitle>
-        <DialogContent>
-          <Typography>Are you sure you want to delete this record?</Typography>
+      {/* New / Edit Admin Dialog */}
+      <Dialog open={adminDialog} onClose={() => setAdminDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#064e4e', color: '#fff' }}>
+          {editingAdmin ? 'Edit Admin' : 'New Admin'}
+        </DialogTitle>
+        <DialogContent sx={{ pt: '20px !important' }}>
+          <Grid container spacing={2}>
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="First Name *"
+                value={adminForm.nameFirst}
+                onChange={e => setAdminForm(f => ({ ...f, nameFirst: e.target.value }))}
+                error={!!formErrors.nameFirst} helperText={formErrors.nameFirst} />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="Last Name"
+                value={adminForm.nameLast}
+                onChange={e => setAdminForm(f => ({ ...f, nameLast: e.target.value }))} />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="Employee # *"
+                value={adminForm.enumber}
+                onChange={e => setAdminForm(f => ({ ...f, enumber: e.target.value }))}
+                error={!!formErrors.enumber} helperText={formErrors.enumber} />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="Badge #"
+                value={adminForm.badgeNo}
+                onChange={e => setAdminForm(f => ({ ...f, badgeNo: e.target.value }))} />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="Job Title"
+                value={adminForm.jobTitle}
+                onChange={e => setAdminForm(f => ({ ...f, jobTitle: e.target.value }))} />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="Department"
+                value={adminForm.department}
+                onChange={e => setAdminForm(f => ({ ...f, department: e.target.value }))} />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField fullWidth size="small" label="Email"
+                value={adminForm.email}
+                onChange={e => setAdminForm(f => ({ ...f, email: e.target.value }))} />
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Admin Level</InputLabel>
+                <Select
+                  value={adminForm.adminLevel}
+                  label="Admin Level"
+                  onChange={e => setAdminForm(f => ({ ...f, adminLevel: Number(e.target.value) }))}
+                >
+                  <MenuItem value={1}>Level 1</MenuItem>
+                  <MenuItem value={2}>Level 2</MenuItem>
+                  <MenuItem value={3}>Level 3</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteOpen(false)}>No</Button>
-          <Button color="error" onClick={performDelete}>Yes</Button>
+          <Button onClick={() => setAdminDialog(false)}>Cancel</Button>
+          <Button variant="contained" onClick={saveAdmin}
+            sx={{ bgcolor: '#008b8b', '&:hover': { bgcolor: '#006f6f' } }}>
+            {editingAdmin ? 'Update' : 'Add Admin'}
+          </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Lookup dialog */}
-      <Dialog open={isLookupOpen} onClose={() => setLookupOpen(false)} maxWidth="lg" fullWidth>
-        <DialogTitle>Look Up</DialogTitle>
+      {/* Delete Confirm */}
+      <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete Admin?</DialogTitle>
         <DialogContent>
-          <Grid container spacing={2} mb={2}>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Last Name" value={lookupLast} onChange={(e) => setLookupLast(e.target.value)} />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="First Name" value={lookupFirst} onChange={(e) => setLookupFirst(e.target.value)} />
-            </Grid>
-          </Grid>
-
-          <Paper variant="outlined">
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>First</TableCell>
-                  <TableCell>Last</TableCell>
-                  <TableCell>Employee#</TableCell>
-                  <TableCell>Badge#</TableCell>
-                  <TableCell>Job</TableCell>
-                  <TableCell>Dept</TableCell>
-                  <TableCell>Email</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {lookupResults.map((p) => (
-                  <TableRow key={p.id} hover onClick={() => addAdminFromLookup(p)} style={{ cursor: 'pointer' }}>
-                    <TableCell>{p.firstName}</TableCell>
-                    <TableCell>{p.lastName}</TableCell>
-                    <TableCell>{p.enumber}</TableCell>
-                    <TableCell>{p.badgeNo}</TableCell>
-                    <TableCell>{p.jobTitle}</TableCell>
-                    <TableCell>{p.department}</TableCell>
-                    <TableCell>{p.email ? <MailOutlineIcon color="success" /> : <MailOutlineIcon color="disabled" />}</TableCell>
-                  </TableRow>
-                ))}
-                {lookupResults.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={7}><Typography variant="body2" sx={{ p: 2 }}>Start typing at least 3 letters in either First Name or Last Name to initiate the search.</Typography></TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </Paper>
+          <Typography>
+            Remove {adminToDelete?.nameFirst} {adminToDelete?.nameLast} from admin access?
+            This cannot be undone.
+          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setLookupOpen(false)}>Close</Button>
+          <Button onClick={() => setDeleteDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={deleteAdmin}>Delete</Button>
         </DialogActions>
       </Dialog>
     </AdminLayout>

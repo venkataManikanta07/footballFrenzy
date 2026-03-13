@@ -1,267 +1,431 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import AdminLayout from '../../components/AdminLayout';
 import {
-  Paper,
-  Typography,
-  Grid,
-  TextField,
-  Select,
-  MenuItem,
-  Button,
-  Box,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  TablePagination,
-  CircularProgress,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
+  Paper, Typography, Grid, TextField, Select, MenuItem, Button, Box,
+  Table, TableHead, TableRow, TableCell, TableBody, TablePagination,
+  IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
+  Chip, Tooltip, FormControl, InputLabel, Stack,
 } from '@mui/material';
-import PrintIcon from '@mui/icons-material/Print';
+import EditIcon   from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import AddIcon    from '@mui/icons-material/Add';
+import {
+  LS_SEASONS, LS_WEEKS, LS_GAMES, LS_PLAYERS, LS_PICKS,
+  loadLS, saveLS, formatDate,
+  INITIAL_SEASONS, INITIAL_WEEKS, INITIAL_GAMES, INITIAL_PLAYERS,
+} from '../../mock/store';
 
-// Mock seasons and weeks
-const seasons = [
-  { id: '2023', label: '2023 Season' },
-  { id: '2024', label: '2024 Season' },
-];
-const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+const TH = { backgroundColor: '#bfe6e6', color: '#064e4e', fontWeight: 700 };
 
-// Mock players dataset
-const mockPlayers = [
-  { playerId: 'p1', employeeNumber: '3413', firstName: 'Read', lastName: 'Drexel', email: 'read@example.com', badgeNumber: '101018', totalCorrectPicks: 173, totalGamesPicked: 39, scoreDifference: 39, seasonRanking: 1, seasonDates: 'Sep 5, 2019-Feb 2, 2020' },
-  { playerId: 'p2', employeeNumber: '7898', firstName: 'James', lastName: 'Mercer', email: 'james@example.com', badgeNumber: '108047', totalCorrectPicks: 172, totalGamesPicked: 27, scoreDifference: 27, seasonRanking: 2, seasonDates: 'Sep 5, 2019-Feb 2, 2020' },
-  { playerId: 'p3', employeeNumber: '5109', firstName: 'Lawrence', lastName: 'Lee', email: 'lawrence@example.com', badgeNumber: '103503', totalCorrectPicks: 171, totalGamesPicked: 96, scoreDifference: 96, seasonRanking: 3, seasonDates: 'Sep 5, 2019-Feb 2, 2020' },
-  // add more players for pagination
-  { playerId: 'p4', employeeNumber: '4281', firstName: 'Rasany', lastName: 'Mekdarasack', email: 'rasany@example.com', badgeNumber: '100064', totalCorrectPicks: 168, totalGamesPicked: 82, scoreDifference: 82, seasonRanking: 4, seasonDates: 'Sep 5, 2019-Feb 2, 2020' },
-  { playerId: 'p5', employeeNumber: '9951', firstName: 'Cory', lastName: 'Loucks', email: 'cory@example.com', badgeNumber: '111355', totalCorrectPicks: 167, totalGamesPicked: 146, scoreDifference: 146, seasonRanking: 5, seasonDates: 'Sep 5, 2019-Feb 2, 2020' },
-];
+function ordinal(n) {
+  const s = ['th','st','nd','rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+const emptyPlayer = { firstName: '', lastName: '', employeeNumber: '', badgeNumber: '', email: '', password: '' };
 
 export default function PlayersPage() {
-  const [isNewOpen, setIsNewOpen] = useState(false);
-  const [newPlayer, setNewPlayer] = useState({ firstName: '', lastName: '', employeeNumber: '', badgeNumber: '', email: '', totalCorrectPicks: 0, totalGamesPicked: 0, scoreDifference: 0, seasonRanking: 0, seasonDates: '' });
-  const [season, setSeason] = useState(seasons[0].id);
-  const [week, setWeek] = useState(1);
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [employeeNumber, setEmployeeNumber] = useState('');
+  const [seasons,  setSeasons]  = useState([]);
+  const [weeks,    setWeeks]    = useState([]);
+  const [games,    setGames]    = useState([]);
+  const [players,  setPlayers]  = useState([]);
+  const [picks,    setPicks]    = useState([]);
 
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState([]);
-  const [page, setPage] = useState(0);
+  const [selectedSeason, setSelectedSeason] = useState('');
+  const [selectedWeek,   setSelectedWeek]   = useState('all');
+  const [pickType,       setPickType]       = useState('best');
+  const [searchLast,     setSearchLast]     = useState('');
+  const [searchFirst,    setSearchFirst]    = useState('');
+  const [searchEmp,      setSearchEmp]      = useState('');
+  const [searchBadge,    setSearchBadge]    = useState('');
+  // applied on Search click
+  const [appliedLast,    setAppliedLast]    = useState('');
+  const [appliedFirst,   setAppliedFirst]   = useState('');
+  const [appliedEmp,     setAppliedEmp]     = useState('');
+  const [appliedBadge,   setAppliedBadge]   = useState('');
+
+  const [page,        setPage]        = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
-  const [orderBy, setOrderBy] = useState('totalCorrectPicks');
-  const [orderDir, setOrderDir] = useState('desc');
 
-  // Simulate fetching data (server-side) with filters, sorting and pagination
-  const fetchData = () => {
-    setLoading(true);
-    setTimeout(() => {
-      let results = [...mockPlayers];
-      // apply filters
-      if (firstName.trim()) results = results.filter(r => r.firstName.toLowerCase().includes(firstName.toLowerCase()));
-      if (lastName.trim()) results = results.filter(r => r.lastName.toLowerCase().includes(lastName.toLowerCase()));
-      if (employeeNumber.trim()) results = results.filter(r => r.employeeNumber.includes(employeeNumber));
+  // New / Edit player dialog
+  const [playerDialog,  setPlayerDialog]  = useState(false);
+  const [playerForm,    setPlayerForm]    = useState(emptyPlayer);
+  const [editingPlayer, setEditingPlayer] = useState(null);
+  const [formErrors,    setFormErrors]    = useState({});
 
-      // sorting
-      results.sort((a, b) => {
-        const av = a[orderBy];
-        const bv = b[orderBy];
-        if (av === bv) return 0;
-        if (orderDir === 'desc') return bv > av ? 1 : -1;
-        return av > bv ? 1 : -1;
-      });
+  // Delete confirm
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [playerToDelete, setPlayerToDelete] = useState(null);
 
-      setData(results);
-      setLoading(false);
-    }, 400); // small delay to show loader
-  };
-
+  // ─── Seed / Load ───────────────────────────────────────────────────────────
   useEffect(() => {
-    fetchData();
-  }, [season, week, firstName, lastName, employeeNumber, orderBy, orderDir]);
+    const s = loadLS(LS_SEASONS, INITIAL_SEASONS);
+    const w = loadLS(LS_WEEKS,   INITIAL_WEEKS);
+    const g = loadLS(LS_GAMES,   INITIAL_GAMES);
+    const p = loadLS(LS_PLAYERS, INITIAL_PLAYERS);
+    const pk = loadLS(LS_PICKS,  []);
+    setSeasons(s);
+    setWeeks(w);
+    setGames(g);
+    setPlayers(p);
+    setPicks(pk);
+    const active = s.find(x => x.status === 'active') || s[0];
+    setSelectedSeason(active ? active.seasonId : '');
+  }, []);
 
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
-  const handleChangeRowsPerPage = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
+  // Weeks for selected season
+  const seasonWeeks = useMemo(
+    () => weeks.filter(w => w.seasonId === selectedSeason).sort((a, b) => a.weekNumber - b.weekNumber),
+    [weeks, selectedSeason],
+  );
+
+  // Games in scope (season + optional week filter)
+  const scopedGames = useMemo(() => {
+    const weekIds = new Set(seasonWeeks.map(w => w.weekId));
+    const base = games.filter(g => weekIds.has(g.weekId));
+    if (selectedWeek === 'all') return base;
+    return base.filter(g => g.weekId === selectedWeek);
+  }, [games, seasonWeeks, selectedWeek]);
+
+  // Leaderboard computation
+  const leaderboard = useMemo(() => {
+    const scopedGameIds = new Set(scopedGames.map(g => g.gameId));
+    const winnerMap = Object.fromEntries(scopedGames.map(g => [g.gameId, g.winnerTeamId]));
+
+    const selectedSeason_ = seasons.find(s => s.seasonId === selectedSeason);
+    const seasonDates = selectedSeason_
+      ? `${formatDate(selectedSeason_.startDate)} – ${formatDate(selectedSeason_.endDate)}`
+      : '';
+
+    const rows = players.map(pl => {
+      const plPicks = picks.filter(pk => pk.playerId === pl.playerId && scopedGameIds.has(pk.gameId));
+      const totalPicked  = plPicks.length;
+      const correctPicks = plPicks.filter(pk => pk.teamId && pk.teamId === winnerMap[pk.gameId]).length;
+      return { ...pl, totalPicked, correctPicks, seasonDates };
+    });
+
+    rows.sort((a, b) => b.correctPicks - a.correctPicks || a.lastName.localeCompare(b.lastName));
+    return rows.map((r, i) => ({ ...r, rank: i + 1 }));
+  }, [players, picks, scopedGames, seasons, selectedSeason]);
+
+  // Apply search filters (applied on Search click)
+  const filtered = useMemo(() => leaderboard.filter(r => {
+    if (appliedFirst && !r.firstName.toLowerCase().includes(appliedFirst.toLowerCase())) return false;
+    if (appliedLast  && !r.lastName.toLowerCase().includes(appliedLast.toLowerCase()))  return false;
+    if (appliedEmp   && !r.employeeNumber.includes(appliedEmp))   return false;
+    if (appliedBadge && !r.badgeNumber?.includes(appliedBadge))   return false;
+    return true;
+  }), [leaderboard, appliedFirst, appliedLast, appliedEmp, appliedBadge]);
+
+  function applySearch() {
+    setAppliedLast(searchLast);
+    setAppliedFirst(searchFirst);
+    setAppliedEmp(searchEmp);
+    setAppliedBadge(searchBadge);
     setPage(0);
-  };
+  }
 
-  const handleSort = (col) => {
-    if (orderBy === col) {
-      setOrderDir(prev => prev === 'desc' ? 'asc' : 'desc');
+  function clearAll() {
+    setSearchLast(''); setSearchFirst(''); setSearchEmp(''); setSearchBadge('');
+    setAppliedLast(''); setAppliedFirst(''); setAppliedEmp(''); setAppliedBadge('');
+    setPage(0);
+  }
+
+  const paginated = useMemo(
+    () => filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [filtered, page, rowsPerPage],
+  );
+
+  // ─── Player CRUD ───────────────────────────────────────────────────────────
+  function openNewPlayer() {
+    setPlayerForm(emptyPlayer);
+    setEditingPlayer(null);
+    setFormErrors({});
+    setPlayerDialog(true);
+  }
+
+  function openEditPlayer(player) {
+    setPlayerForm({
+      firstName:      player.firstName,
+      lastName:       player.lastName,
+      employeeNumber: player.employeeNumber,
+      badgeNumber:    player.badgeNumber,
+      email:          player.email,
+      password:       player.password || '',
+    });
+    setEditingPlayer(player);
+    setFormErrors({});
+    setPlayerDialog(true);
+  }
+
+  function validatePlayer() {
+    const e = {};
+    if (!playerForm.firstName.trim())      e.firstName      = 'Required';
+    if (!playerForm.employeeNumber.trim()) e.employeeNumber = 'Required';
+    if (!playerForm.password.trim())       e.password       = 'Required';
+    return e;
+  }
+
+  function savePlayer() {
+    const e = validatePlayer();
+    if (Object.keys(e).length) { setFormErrors(e); return; }
+    let updated;
+    if (editingPlayer) {
+      updated = players.map(p =>
+        p.playerId === editingPlayer.playerId ? { ...p, ...playerForm } : p,
+      );
     } else {
-      setOrderBy(col);
-      setOrderDir('desc');
+      updated = [...players, {
+        playerId:       `p${Date.now()}`,
+        firstName:      playerForm.firstName,
+        lastName:       playerForm.lastName,
+        employeeNumber: playerForm.employeeNumber,
+        badgeNumber:    playerForm.badgeNumber,
+        email:          playerForm.email,
+        password:       playerForm.password,
+      }];
     }
-  };
+    saveLS(LS_PLAYERS, updated);
+    setPlayers(updated);
+    setPlayerDialog(false);
+  }
 
-  const paginated = useMemo(() => data.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage), [data, page, rowsPerPage]);
+  function confirmDelete(player) { setPlayerToDelete(player); setDeleteDialog(true); }
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const handleNewChange = (field) => (e) => {
-    const value = e.target.value;
-    setNewPlayer((p) => ({ ...p, [field]: value }));
-  };
-
-  const handleAddPlayer = () => {
-    // Basic validation
-    if (!newPlayer.firstName.trim() || !newPlayer.employeeNumber.trim()) {
-      alert('First name and Employee# are required.');
-      return;
-    }
-    const created = {
-      playerId: `p-${Date.now()}`,
-      employeeNumber: newPlayer.employeeNumber,
-      firstName: newPlayer.firstName,
-      lastName: newPlayer.lastName,
-      email: newPlayer.email,
-      badgeNumber: newPlayer.badgeNumber,
-      totalCorrectPicks: Number(newPlayer.totalCorrectPicks) || 0,
-      totalGamesPicked: Number(newPlayer.totalGamesPicked) || 0,
-      scoreDifference: Number(newPlayer.scoreDifference) || 0,
-      seasonRanking: Number(newPlayer.seasonRanking) || 0,
-      seasonDates: newPlayer.seasonDates || '',
-    };
-    setData((prev) => [created, ...prev]);
-    setIsNewOpen(false);
-    setNewPlayer({ firstName: '', lastName: '', employeeNumber: '', badgeNumber: '', email: '', totalCorrectPicks: 0, totalGamesPicked: 0, scoreDifference: 0, seasonRanking: 0, seasonDates: '' });
-    setPage(0);
-  };
+  function deletePlayer() {
+    const updated = players.filter(p => p.playerId !== playerToDelete.playerId);
+    const updatedPicks = picks.filter(pk => pk.playerId !== playerToDelete.playerId);
+    saveLS(LS_PLAYERS, updated);
+    saveLS(LS_PICKS, updatedPicks);
+    setPlayers(updated);
+    setPicks(updatedPicks);
+    setDeleteDialog(false);
+    setPlayerToDelete(null);
+  }
 
   return (
     <AdminLayout>
-      <Paper sx={{ p: 3, mb: 2 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Typography variant="h5" color="primary">Football Frenzy Admin - Players</Typography>
-          <Box>
-            <Button sx={{ mr: 1 }} variant="outlined" onClick={() => setIsNewOpen(true)}>New Player</Button>
-            <Button variant="contained" startIcon={<PrintIcon />} onClick={handlePrint}>Print</Button>
+      <Paper sx={{ p: 3 }}>
+        {/* Header */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h5" sx={{ fontWeight: 700, color: '#064e4e' }}>Players</Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={openNewPlayer}
+            sx={{ bgcolor: '#008b8b', '&:hover': { bgcolor: '#006f6f' } }}
+          >
+            New Player
+          </Button>
+        </Box>
+
+        {/* Filters row 1: dropdowns */}
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', mb: 2, flexWrap: 'wrap' }}>
+          <Box sx={{ minWidth: 180 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>Season</Typography>
+            <FormControl fullWidth size="small">
+              <Select value={selectedSeason} onChange={e => { setSelectedSeason(e.target.value); setSelectedWeek('all'); setPage(0); }}>
+                {seasons.map(s => <MenuItem key={s.seasonId} value={s.seasonId}>{s.seasonName}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Box>
+          <Box sx={{ minWidth: 120 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>Week Number</Typography>
+            <FormControl fullWidth size="small">
+              <Select value={selectedWeek} onChange={e => { setSelectedWeek(e.target.value); setPage(0); }}>
+                <MenuItem value="all">All</MenuItem>
+                {seasonWeeks.map(w => <MenuItem key={w.weekId} value={w.weekId}>{w.weekNumber}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Box>
+          <Box sx={{ minWidth: 140 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>Pick Type</Typography>
+            <FormControl fullWidth size="small">
+              <Select value={pickType} onChange={e => setPickType(e.target.value)}>
+                <MenuItem value="best">Best Picks</MenuItem>
+                <MenuItem value="all">All Picks</MenuItem>
+              </Select>
+            </FormControl>
           </Box>
         </Box>
 
-        <Grid container spacing={2} mb={2}>
-          <Grid item xs={12} md={3}>
-            <Select fullWidth value={season} onChange={(e) => setSeason(e.target.value)}>
-              {seasons.map(s => <MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>)}
-            </Select>
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <Select fullWidth value={week} onChange={(e) => setWeek(e.target.value)}>
-              {weeks.map(w => <MenuItem key={w} value={w}>{w}</MenuItem>)}
-            </Select>
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <TextField fullWidth label="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <TextField fullWidth label="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <TextField fullWidth label="Employee#" value={employeeNumber} onChange={(e) => setEmployeeNumber(e.target.value)} />
-          </Grid>
-        </Grid>
-
-        <Typography variant="caption" sx={{ fontWeight: 600 }}>NOTES:</Typography>
-
-        <Box mt={2}>
-          {loading ? (
-            <Box display="flex" justifyContent="center" py={6}><CircularProgress /></Box>
-          ) : data.length === 0 ? (
-            <Box p={4}><Typography>No players found.</Typography></Box>
-          ) : (
-            <>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: '#bfe6e6' }}>
-                    <TableCell onClick={() => handleSort('seasonRanking')} sx={{ cursor: 'pointer', fontWeight: 600 }}>Season Place</TableCell>
-                    <TableCell onClick={() => handleSort('lastName')} sx={{ cursor: 'pointer', fontWeight: 600 }}>Player Name</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Employee / Badge</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Season Dates</TableCell>
-                    <TableCell onClick={() => handleSort('totalCorrectPicks')} sx={{ cursor: 'pointer', fontWeight: 600 }}>Total Winning Games Picked</TableCell>
-                    <TableCell onClick={() => handleSort('scoreDifference')} sx={{ cursor: 'pointer', fontWeight: 600 }}>Total Combined Score Difference</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Season Ranking</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {paginated.map((p) => (
-                    <TableRow key={p.playerId}>
-                      <TableCell>{p.seasonRanking}</TableCell>
-                      <TableCell>{p.firstName} {p.lastName}</TableCell>
-                      <TableCell>{p.employeeNumber} / {p.badgeNumber}</TableCell>
-                      <TableCell>{p.seasonDates}</TableCell>
-                      <TableCell>{p.totalCorrectPicks}</TableCell>
-                      <TableCell>{p.scoreDifference}</TableCell>
-                      <TableCell>{p.seasonRanking}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-              <Box display="flex" justifyContent="flex-end" mt={2}>
-                <TablePagination
-                  component="div"
-                  count={data.length}
-                  page={page}
-                  onPageChange={handleChangePage}
-                  rowsPerPage={rowsPerPage}
-                  onRowsPerPageChange={handleChangeRowsPerPage}
-                  rowsPerPageOptions={[5, 10, 20, 50]}
-                />
-              </Box>
-            </>
-          )}
+        {/* Filters row 2: text search */}
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', mb: 1, flexWrap: 'wrap' }}>
+          <Box sx={{ flex: 1, minWidth: 130 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>Last Name</Typography>
+            <TextField fullWidth size="small" placeholder="Last Name" value={searchLast} onChange={e => setSearchLast(e.target.value)} />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 130 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>First Name</Typography>
+            <TextField fullWidth size="small" placeholder="First Name" value={searchFirst} onChange={e => setSearchFirst(e.target.value)} />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 110 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>Employee#</Typography>
+            <TextField fullWidth size="small" placeholder="Employee#" value={searchEmp} onChange={e => setSearchEmp(e.target.value)} />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 110 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#555', display: 'block', mb: 0.5 }}>Badge#</Typography>
+            <TextField fullWidth size="small" placeholder="Badge#" value={searchBadge} onChange={e => setSearchBadge(e.target.value)} />
+          </Box>
+          <Button variant="contained" size="small" onClick={applySearch}
+            sx={{ bgcolor: '#008b8b', '&:hover': { bgcolor: '#006f6f' }, alignSelf: 'flex-end' }}>
+            Search
+          </Button>
+          <Button variant="outlined" onClick={clearAll}
+            sx={{ ml: 'auto', borderColor: '#008b8b', color: '#008b8b', alignSelf: 'flex-end' }}>
+            CLEAR
+          </Button>
         </Box>
+
+        {/* Count */}
+        <Typography variant="body2" sx={{ color: '#555', mb: 1 }}>
+          ({filtered.length} player{filtered.length !== 1 ? 's' : ''} found)
+        </Typography>
+
+        {/* Note */}
+        <Typography variant="caption" sx={{ color: '#555', display: 'block', mb: 2 }}>
+          <strong>Note:</strong> Players will not display for a given week until scores for that week have been entered.
+        </Typography>
+
+        {/* Table */}
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={TH}>Season Place</TableCell>
+              <TableCell sx={TH}>Team Member</TableCell>
+              <TableCell sx={TH}>Employee #<br />Badge #</TableCell>
+              <TableCell sx={TH}>Season Dates</TableCell>
+              <TableCell sx={TH} align="center">Total Winning<br />Games Picked</TableCell>
+              <TableCell sx={TH} align="center">Total Combined<br />Score Difference</TableCell>
+              <TableCell sx={TH}>Season Ranking</TableCell>
+              <TableCell sx={TH} align="center">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {paginated.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 4, color: '#888' }}>No players found.</TableCell>
+              </TableRow>
+            ) : paginated.map(player => (
+              <TableRow key={player.playerId} hover>
+                <TableCell>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{ordinal(player.rank)}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {player.lastName}{player.lastName && player.firstName ? ', ' : ''}{player.firstName}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2">{player.employeeNumber}</Typography>
+                  <Typography variant="body2">{player.badgeNumber}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="caption" sx={{ color: '#666' }}>{player.seasonDates}</Typography>
+                </TableCell>
+                <TableCell align="center">
+                  <Typography variant="body2">{player.correctPicks}</Typography>
+                </TableCell>
+                <TableCell align="center">
+                  <Typography variant="body2">—</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2">{player.rank} out of {filtered.length}</Typography>
+                </TableCell>
+                <TableCell align="center">
+                  <Stack direction="row" justifyContent="center">
+                    <Tooltip title="Edit Player">
+                      <IconButton size="small" onClick={() => openEditPlayer(player)} sx={{ color: '#555' }}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete Player">
+                      <IconButton size="small" onClick={() => confirmDelete(player)} sx={{ color: '#d32f2f' }}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+
+        <TablePagination
+          component="div"
+          count={filtered.length}
+          page={page}
+          onPageChange={(_, p) => setPage(p)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+          rowsPerPageOptions={[5, 10, 20, 50]}
+        />
       </Paper>
-      {/* New Player dialog */}
-      <Dialog open={isNewOpen} onClose={() => setIsNewOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>New Player</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 0.5 }}>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="First Name" value={newPlayer.firstName} onChange={handleNewChange('firstName')} />
+
+      {/* New / Edit Player Dialog */}
+      <Dialog open={playerDialog} onClose={() => setPlayerDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#064e4e', color: '#fff' }}>
+          {editingPlayer ? 'Edit Player' : 'New Player'}
+        </DialogTitle>
+        <DialogContent sx={{ pt: '20px !important' }}>
+          <Grid container spacing={2}>
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="First Name *"
+                value={playerForm.firstName}
+                onChange={e => setPlayerForm(f => ({ ...f, firstName: e.target.value }))}
+                error={!!formErrors.firstName} helperText={formErrors.firstName} />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Last Name" value={newPlayer.lastName} onChange={handleNewChange('lastName')} />
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="Last Name"
+                value={playerForm.lastName}
+                onChange={e => setPlayerForm(f => ({ ...f, lastName: e.target.value }))} />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Employee#" value={newPlayer.employeeNumber} onChange={handleNewChange('employeeNumber')} />
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="Employee # *"
+                value={playerForm.employeeNumber}
+                onChange={e => setPlayerForm(f => ({ ...f, employeeNumber: e.target.value }))}
+                error={!!formErrors.employeeNumber} helperText={formErrors.employeeNumber} />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Badge#" value={newPlayer.badgeNumber} onChange={handleNewChange('badgeNumber')} />
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="Badge #"
+                value={playerForm.badgeNumber}
+                onChange={e => setPlayerForm(f => ({ ...f, badgeNumber: e.target.value }))} />
             </Grid>
-            <Grid item xs={12} md={12}>
-              <TextField fullWidth label="Email" value={newPlayer.email} onChange={handleNewChange('email')} />
+            <Grid item xs={12}>
+              <TextField fullWidth size="small" label="Email"
+                value={playerForm.email}
+                onChange={e => setPlayerForm(f => ({ ...f, email: e.target.value }))} />
             </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField fullWidth label="Total Correct Picks" type="number" value={newPlayer.totalCorrectPicks} onChange={handleNewChange('totalCorrectPicks')} />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField fullWidth label="Total Games Picked" type="number" value={newPlayer.totalGamesPicked} onChange={handleNewChange('totalGamesPicked')} />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField fullWidth label="Score Difference" type="number" value={newPlayer.scoreDifference} onChange={handleNewChange('scoreDifference')} />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Season Ranking" type="number" value={newPlayer.seasonRanking} onChange={handleNewChange('seasonRanking')} />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Season Dates" value={newPlayer.seasonDates} onChange={handleNewChange('seasonDates')} />
+            <Grid item xs={12}>
+              <TextField fullWidth size="small" label="Password *" type="password"
+                value={playerForm.password}
+                onChange={e => setPlayerForm(f => ({ ...f, password: e.target.value }))}
+                error={!!formErrors.password} helperText={formErrors.password} />
             </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setIsNewOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleAddPlayer}>Add Player</Button>
+          <Button onClick={() => setPlayerDialog(false)}>Cancel</Button>
+          <Button variant="contained" onClick={savePlayer}
+            sx={{ bgcolor: '#008b8b', '&:hover': { bgcolor: '#006f6f' } }}>
+            {editingPlayer ? 'Update' : 'Add Player'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirm */}
+      <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete Player?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Remove {playerToDelete?.firstName} {playerToDelete?.lastName} and all their picks?
+            This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={deletePlayer}>Delete</Button>
         </DialogActions>
       </Dialog>
     </AdminLayout>
