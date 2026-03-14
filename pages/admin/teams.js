@@ -4,13 +4,14 @@ import {
   Box, Button, Avatar, Chip, Dialog, DialogContent, DialogTitle,
   IconButton, MenuItem, Paper, Select, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Typography, FormControl, InputLabel,
+  Checkbox, Grid, Stack,
 } from '@mui/material';
 import AddIcon    from '@mui/icons-material/Add';
 import CloseIcon  from '@mui/icons-material/Close';
 import {
   loadLS, saveLS,
-  LS_SEASONS, LS_TEAMS,
-  INITIAL_SEASONS, INITIAL_TEAMS, NFL_TEAMS_BASE,
+  LS_SEASONS, LS_TEAMS, LS_PLAYERS,
+  INITIAL_SEASONS, INITIAL_TEAMS, INITIAL_PLAYERS, NFL_TEAMS_BASE,
   formatDate,
 } from '../../mock/store';
 
@@ -28,11 +29,13 @@ function seasonLabel(s) {
 export default function TeamsPage() {
   const [seasons, setSeasons] = useState([]);
   const [teams,   setTeams]   = useState([]);
+  const [players, setPlayers] = useState([]);
 
   useEffect(() => {
     const s = loadLS(LS_SEASONS, INITIAL_SEASONS);
     setSeasons(s);
     setTeams(loadLS(LS_TEAMS, INITIAL_TEAMS));
+    setPlayers(loadLS(LS_PLAYERS, INITIAL_PLAYERS));
     // default to active season
     const active = s.find(x => x.status === 'active') || s[0];
     if (active) setSeasonFilter(active.seasonId);
@@ -59,12 +62,14 @@ export default function TeamsPage() {
   const [form,        setForm]        = useState(EMPTY_FORM);
   const [nflTemplate, setNflTemplate] = useState('');
   const [teamImage,   setTeamImage]   = useState(null);   // data URL or null
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState([]);  // players assigned to this team
   const fileInputRef = useRef(null);
 
   const openNew = () => {
     setEditing(null);
     setNflTemplate('');
     setTeamImage(null);
+    setSelectedPlayerIds([]);
     setForm({ ...EMPTY_FORM, seasonId: seasonFilter !== 'all' ? seasonFilter : (seasons[0]?.seasonId || '') });
     setOpen(true);
   };
@@ -73,6 +78,7 @@ export default function TeamsPage() {
     setEditing(t);
     setNflTemplate('');
     setTeamImage(t.image || null);
+    setSelectedPlayerIds(t.playerIds || []);
     setForm({ teamName: t.teamName, teamCity: t.teamCity, abbr: t.abbr, color: t.color, seasonId: t.seasonId });
     setOpen(true);
   };
@@ -95,13 +101,45 @@ export default function TeamsPage() {
 
   const handleSave = () => {
     if (!form.teamName.trim() || !form.seasonId) return;
+    
+    // Update team with playerIds
+    const teamData = { ...form, image: teamImage, playerIds: selectedPlayerIds };
+    
     if (editing) {
-      saveTeams(teams.map((t) => t.id === editing.id ? { ...t, ...form, image: teamImage } : t));
+      saveTeams(teams.map((t) => t.id === editing.id ? { ...t, ...teamData } : t));
     } else {
       const id = `custom-${Date.now()}`;
-      saveTeams([...teams, { id, teamId: id, ...form, image: teamImage }]);
+      saveTeams([...teams, { id, teamId: id, ...teamData }]);
     }
+    
+    // Update players with teamId
+    const updatedPlayers = players.map((p) => {
+      // If player was in old team, remove teamId
+      let updated = { ...p };
+      if (editing && editing.playerIds?.includes(p.playerId) && !selectedPlayerIds.includes(p.playerId)) {
+        updated.teamId = null;
+      }
+      // If player is now in this team, add teamId
+      if (selectedPlayerIds.includes(p.playerId)) {
+        updated.teamId = editing ? editing.id : `custom-${Date.now()}`;
+      }
+      return updated;
+    });
+    saveLS(LS_PLAYERS, updatedPlayers);
+    setPlayers(updatedPlayers);
+    
     setOpen(false);
+  };
+
+  // Get available players: not assigned to any team, or assigned to current team
+  const availablePlayers = useMemo(() => {
+    return players.filter(p => !p.teamId || selectedPlayerIds.includes(p.playerId));
+  }, [players, selectedPlayerIds]);
+
+  const togglePlayer = (playerId) => {
+    setSelectedPlayerIds((prev) =>
+      prev.includes(playerId) ? prev.filter(id => id !== playerId) : [...prev, playerId]
+    );
   };
 
   return (
@@ -255,6 +293,34 @@ export default function TeamsPage() {
               sx={{ borderColor: '#888', color: '#333' }}>
               Select Image
             </Button>
+          </Box>
+
+          {/* Player Selection */}
+          <Box>
+            <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>Assign Players:</Typography>
+            <Box sx={{ border: '1px solid #ddd', borderRadius: 1, p: 1.5, maxHeight: 250, overflowY: 'auto', bgcolor: '#fafafa' }}>
+              {availablePlayers.length === 0 ? (
+                <Typography variant="caption" color="text.secondary">No players available</Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {availablePlayers.map((p) => (
+                    <Box key={p.playerId} display="flex" alignItems="center" gap={1}>
+                      <Checkbox
+                        checked={selectedPlayerIds.includes(p.playerId)}
+                        onChange={() => togglePlayer(p.playerId)}
+                        size="small"
+                      />
+                      <Typography variant="body2">{p.firstName} {p.lastName} ({p.employeeNumber})</Typography>
+                    </Box>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+            {selectedPlayerIds.length > 0 && (
+              <Typography variant="caption" sx={{ mt: 1, color: '#008b8b', fontWeight: 600 }}>
+                {selectedPlayerIds.length} player{selectedPlayerIds.length !== 1 ? 's' : ''} selected
+              </Typography>
+            )}
           </Box>
 
           <Button variant="contained" onClick={handleSave}
